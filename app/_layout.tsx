@@ -1,24 +1,21 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
-import { useColorScheme } from '@/components/useColorScheme';
+import { useColorScheme } from '../src/components/useColorScheme';
 
-export {
-  // Catch any errors thrown by the Layout component.
-  ErrorBoundary,
-} from 'expo-router';
+export { ErrorBoundary } from 'expo-router';
 
 export const unstable_settings = {
-  // Ensure that reloading on `/modal` keeps a back button present.
   initialRouteName: '(tabs)',
 };
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
@@ -27,7 +24,6 @@ export default function RootLayout() {
     ...FontAwesome.font,
   });
 
-  // Expo Router uses Error Boundaries to catch errors in the navigation tree.
   useEffect(() => {
     if (error) throw error;
   }, [error]);
@@ -38,19 +34,53 @@ export default function RootLayout() {
     }
   }, [loaded]);
 
-  if (!loaded) {
-    return null;
-  }
+  if (!loaded) return null;
 
-  return <RootLayoutNav />;
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <RootLayoutNav />
+    </GestureHandlerRootView>
+  );
 }
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  const segments = useSegments();
+  const router = useRouter();
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const session = await AsyncStorage.getItem('@user_session');
+        const hasSession = !!session;
+        const inAuthGroup = segments[0] === 'login';
+
+        // 1. Kullanıcı giriş yapmamışsa ve login sayfasında değilse -> Login'e at
+        if (!hasSession && !inAuthGroup) {
+          router.replace('/login');
+        } 
+        // 2. Kullanıcı giriş yapmışsa ve login sayfasındaysa -> Ana Sayfa'ya at
+        else if (hasSession && inAuthGroup) {
+          router.replace('/(tabs)');
+        }
+      } catch (e) {
+        console.error("Auth check error", e);
+      } finally {
+        setIsReady(true);
+      }
+    };
+
+    // Fontlar yüklendikten sonra kontrolü yap
+    if (isReady || segments.length >= 0) {
+      checkAuth();
+    }
+  }, [segments, isReady]); // Segments değiştiğinde (yönlendirme tetiklendiğinde) tekrar çalışır
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
+        <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
       </Stack>

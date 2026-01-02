@@ -1,7 +1,10 @@
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/src/components/useColorScheme';
 import { PendingSync } from '@/src/interface/sync';
+import { UserSession } from '@/src/interface/auth';
 import { nfcService } from '@/src/services/nfcService';
+import { syncService } from '@/src/services/syncService';
+import { authService } from '@/src/services/authService';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as NetInfo from '@react-native-community/netinfo';
@@ -18,8 +21,11 @@ export default function TabOneScreen() {
   const [lastScan, setLastScan] = useState<PendingSync | null>(null);
   const [showWarning, setShowWarning] = useState(false);
   const [activeCp, setActiveCp] = useState('YÜKLENİYOR...');
+  const [checkpointId, setCheckpointId] = useState<number | null>(null);
+  const [session, setSession] = useState<UserSession | null>(null);
   const [conn, setConn] = useState<{ type: string | null; isConnected: boolean | null }>({ type: null, isConnected: true });
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  const [syncStats, setSyncStats] = useState({ pending: 0, synced: 0 });
   
   const timerRef = useRef<NodeJS.Timeout | number | null>(null);
   const cacheCheckIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
@@ -71,10 +77,22 @@ export default function TabOneScreen() {
   };
 
   const loadConfig = async () => {
-    // AsyncStorage'dan çekilen değeri hem state'e hem de fonksiyona geri döndür
-    const cp = (await AsyncStorage.getItem('@checkpoint_name')) || ' CHECKPOINT';
+    // Session bilgilerini al
+    const userSession = await authService.getOfflineSession();
+    setSession(userSession);
+    
+    // Checkpoint bilgilerini al
+    const cp = userSession?.checkpointName || (await AsyncStorage.getItem('@checkpoint_name')) || 'CHECKPOINT';
+    const cpId = userSession?.checkpointId || null;
+    
     setActiveCp(cp);
-    return cp;
+    setCheckpointId(cpId);
+    
+    // Sync istatistiklerini güncelle
+    const stats = await syncService.getSyncStats();
+    setSyncStats({ pending: stats.pending, synced: stats.synced });
+    
+    return { name: cp, id: cpId };
   };
 
   const getLocationCoords = async () => {
@@ -130,19 +148,27 @@ export default function TabOneScreen() {
     setShowWarning(false); 
     setStatus('SCANNING');
 
+    // Checkpoint ID kontrolü
+    if (!currentCp.id) {
+      Alert.alert('Hata', 'Henüz bir checkpoint atanmamış. Lütfen yöneticinizle iletişime geçin.');
+      setStatus('ERROR');
+      return;
+    }
+
     // GPS koordinatlarını al
     const coords = await getLocationCoords();
 
     const result = await nfcService.readTag();
 
     if (result.success) {
-      const riderId = result.tagId || '14 BUĞRA ARSLAN'; 
+      const tagId = result.tagId || 'UNKNOWN_TAG'; 
       
       try {
-        const stored = await AsyncStorage.getItem('@nfc_scan_queue');
-        let currentList: PendingSync[] = stored ? JSON.parse(stored) : [];
-
-        const isDuplicate = currentList.find(item => item.tagId === riderId && item.pointName === currentCp);
+        // Duplicate kontrolü
+        const queue = await syncService.getQueue();
+        const isDuplicate = queue.find(item => 
+          item.tagId === tagId && item.checkpointId === currentCp.id
+        );
         
         if (isDuplicate) {
           setShowWarning(true);
@@ -151,24 +177,20 @@ export default function TabOneScreen() {
           return;
         }
 
-        const newEntry: PendingSync = {
-          id: Date.now().toString(),
-          tagId: riderId,
-          payload: result.data || '',
-          status: 'PENDING',
-          retryCount: 0,
-          timestamp: Date.now(),
-          pointName: currentCp,
-          coords: coords
-        };
-
-        const updatedList = [newEntry, ...currentList];
-        await AsyncStorage.setItem('@nfc_scan_queue', JSON.stringify(updatedList));
-        // Cache'e kaydet
-        await AsyncStorage.setItem('@last_scan_cache', JSON.stringify(newEntry));
+        // syncService ile queue'ya ekle (otomatik sync dener)
+        const newEntry = await syncService.addToQueue(
+          tagId,
+          currentCp.id,
+          currentCp.name,
+          coords ? { lat: coords.lat, lon: coords.lng } : undefined
+        );
         
         setLastScan(newEntry);
         setStatus('SUCCESS');
+        
+        // Sync stats güncelle
+        const stats = await syncService.getSyncStats();
+        setSyncStats({ pending: stats.pending, synced: stats.synced });
 
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = setTimeout(() => setStatus('IDLE'), 15000);
@@ -190,10 +212,15 @@ export default function TabOneScreen() {
         {/* 1. ÜST BİLGİ */}
         <View style={styles.topHeader}>
           <Text style={[styles.locationText, { color: lastScan ? colors.palette.blue[600] : colors.palette.gray[400] }]}>
-            Konum: {activeCp}
+            📍 {activeCp}
           </Text>
           <View style={styles.systemInfo}>
-            <Text style={styles.staffId}>Staff 21</Text>
+            <Text style={styles.staffId}>{session?.staffCode || 'Staff'}</Text>
+            <View style={styles.syncBadge}>
+              <Text style={[styles.syncText, { color: syncStats.pending > 0 ? colors.palette.amber[500] : colors.palette.emerald[500] }]}>
+                {syncStats.pending > 0 ? `⏳ ${syncStats.pending}` : `✓ ${syncStats.synced}`}
+              </Text>
+            </View>
             <MaterialCommunityIcons 
               name={!conn.isConnected ? "wifi-off" : (conn.type === 'wifi' ? "wifi" : "transmission-tower")} 
               size={20} 
@@ -324,6 +351,8 @@ const styles = StyleSheet.create({
   locationText: { fontSize: 18, fontWeight: '800' },
   systemInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   staffId: { fontSize: 12, fontWeight: '700', color: '#aaa' },
+  syncBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: '#f5f5f5' },
+  syncText: { fontSize: 11, fontWeight: '700' },
   timeBox: { alignItems: 'center', marginBottom: 5 },
   timeText: { fontSize: 42, fontWeight: '800' },
   msText: { fontSize: 22, color: '#bbb' },

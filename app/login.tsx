@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -13,9 +14,10 @@ import {
 import Colors from '../constants/Colors';
 import { useColorScheme } from '../src/components/useColorScheme';
 import { authService } from '../src/services/authService';
+import { syncService } from '../src/services/syncService';
 
 export default function LoginScreen() {
-  const [eventId, setEventId] = useState('');
+  const [staffCode, setStaffCode] = useState('');
   const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
   
@@ -23,20 +25,35 @@ export default function LoginScreen() {
   const theme = useColorScheme() ?? 'light';
   const currentColors = Colors[theme];
 
+  // Staff Code formatla (S-XXX) - Sadece sayıları al
+  const formatStaffCode = (text: string) => {
+    // Sadece rakam izin ver
+    let numericOnly = text.replace(/[^0-9]/g, '');
+    // Maksimum 3 rakam
+    return 'S-' + numericOnly.substring(0, 3);
+  };
+
   const handleLogin = async () => {
-    if (!eventId || !pin) {
-      Alert.alert("Hata", "Lütfen tüm alanları doldurun.");
+    if (!staffCode || staffCode.length < 5) {
+      Alert.alert("Hata", "Lütfen geçerli bir Staff ID girin (S-XXX)");
+      return;
+    }
+
+    if (!pin || pin.length !== 4) {
+      Alert.alert("Hata", "PIN 4 haneli olmalıdır");
       return;
     }
 
     setLoading(true);
-    const success = await authService.login(eventId, pin);
+    const result = await authService.login(staffCode, pin);
     setLoading(false);
 
-    if (success) {
+    if (result.success) {
+      // Otomatik sync'i başlat
+      syncService.startAutoSync();
       router.replace('/(tabs)'); 
     } else {
-      Alert.alert("Hatalı Giriş", "Etkinlik Kodu veya PIN yanlış.");
+      Alert.alert("Giriş Hatası", result.error || "Staff ID veya PIN yanlış.");
     }
   };
 
@@ -51,49 +68,64 @@ export default function LoginScreen() {
         borderWidth: theme === 'dark' ? 1 : 0 
       }]}>
         <Text style={[styles.title, { color: currentColors.text }]}>Racer Tracker</Text>
-        <Text style={[styles.subtitle, { color: currentColors.palette.gray[500] }]}>
-          Giriş yaparak takibe başlayın
-        </Text>
 
-        <TextInput
-          style={[styles.input, { 
-            backgroundColor: theme === 'light' ? currentColors.palette.gray[100] : currentColors.palette.gray[800],
-            color: currentColors.text,
-            borderColor: currentColors.border
-          }]}
-          placeholder="Etkinlik Kodu: STAFF2026"
-          placeholderTextColor={currentColors.palette.gray[400]}
-          value={eventId}
-          onChangeText={setEventId}
-          autoCapitalize="characters"
-        />
+        <View style={styles.inputGroup}>
+          <Text style={[styles.label, { color: currentColors.palette.gray[500] }]}>Staff ID</Text>
+          <TextInput
+            style={[styles.input, { 
+              backgroundColor: theme === 'light' ? currentColors.palette.gray[100] : currentColors.palette.gray[800],
+              color: currentColors.text,
+              borderColor: currentColors.border,
+              fontSize: 28,
+              letterSpacing: 8,
+              textAlign: 'center',
+              fontWeight: '700',
+            }]}
+            placeholder="S - ●●●"
+            placeholderTextColor={currentColors.palette.gray[400]}
+            value={staffCode}
+            onChangeText={(text) => setStaffCode(formatStaffCode(text))}
+            keyboardType="number-pad"
+            autoCorrect={false}
+            maxLength={5}
+          />
+        </View>
 
-        <TextInput
-          style={[styles.input, { 
-            backgroundColor: theme === 'light' ? currentColors.palette.gray[100] : currentColors.palette.gray[800],
-            color: currentColors.text,
-            borderColor: currentColors.border
-          }]}
-          placeholder="PIN: 1234"
-          placeholderTextColor={currentColors.palette.gray[400]}
-          value={pin}
-          onChangeText={setPin}
-          keyboardType="numeric"
-          secureTextEntry
-        />
+        <View style={styles.inputGroup}>
+          <Text style={[styles.label, { color: currentColors.palette.gray[500] }]}>PIN</Text>
+          <TextInput
+            style={[styles.input, { 
+              backgroundColor: theme === 'light' ? currentColors.palette.gray[100] : currentColors.palette.gray[800],
+              color: currentColors.text,
+              borderColor: currentColors.border,
+              fontSize: 28,
+              letterSpacing: 12,
+              textAlign: 'center',
+            }]}
+            placeholder="● ● ● ●"
+            placeholderTextColor={currentColors.palette.gray[400]}
+            value={pin}
+            onChangeText={(text) => setPin(text.replace(/[^0-9]/g, '').substring(0, 4))}
+            keyboardType="number-pad"
+            secureTextEntry
+            maxLength={4}
+          />
+        </View>
 
         <TouchableOpacity 
           style={[
             styles.button, 
-            { backgroundColor: currentColors.palette.emerald[500] }, // Senin istediğin canlı yeşil tonu
+            { backgroundColor: currentColors.palette.emerald[500] },
             loading && { opacity: 0.7 }
           ]} 
           onPress={handleLogin}
           disabled={loading}
         >
-          <Text style={styles.buttonText}>
-            {loading ? "Giriş Yapılıyor..." : "Giriş Yap"}
-          </Text>
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>Giriş Yap</Text>
+          )}
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -119,19 +151,22 @@ const styles = StyleSheet.create({
     fontSize: 32, 
     fontWeight: '800', 
     textAlign: 'center',
-    letterSpacing: -0.5
+    letterSpacing: -0.5,
+    marginBottom: 35
   },
-  subtitle: { 
-    fontSize: 16, 
-    textAlign: 'center', 
-    marginBottom: 35,
-    marginTop: 5
+  inputGroup: {
+    marginBottom: 20,
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 8,
+    marginLeft: 4,
   },
   input: { 
     padding: 18, 
     borderRadius: 15, 
     borderWidth: 1, 
-    marginBottom: 16, 
     fontSize: 16 
   },
   button: { 
@@ -139,7 +174,6 @@ const styles = StyleSheet.create({
     borderRadius: 15, 
     alignItems: 'center', 
     marginTop: 10,
-    // Gölge efekti butonu öne çıkarır
     shadowColor: '#10b981',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
@@ -147,7 +181,7 @@ const styles = StyleSheet.create({
   },
   buttonText: { 
     color: '#fff', 
-    fontSize: 18, 
-    fontWeight: '700' 
-  }
+    fontSize: 18,
+    fontWeight: '700',
+  },
 });

@@ -9,6 +9,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '../src/components/useColorScheme';
+import { ErrorProvider, useError } from '../src/components/ErrorBottomSheet';
+import { setGlobalErrorHandler } from '../src/config/api';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -38,7 +40,9 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <RootLayoutNav />
+      <ErrorProvider>
+        <RootLayoutNav />
+      </ErrorProvider>
     </GestureHandlerRootView>
   );
 }
@@ -48,6 +52,12 @@ function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
   const [isReady, setIsReady] = useState(false);
+  const { showError } = useError();
+
+  // Global error handler'ı ayarla
+  useEffect(() => {
+    setGlobalErrorHandler(showError);
+  }, [showError]);
 
   useEffect(() => {
     const checkAuth = async () => {

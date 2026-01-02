@@ -1,15 +1,14 @@
 import axios, { AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Development: localhost (Android emulator için 10.0.2.2, iOS simulator için localhost)
-// Production: Gerçek server IP/domain
-// NOT: Aynı Wi-Fi ağında olduğunuzdan emin olun
-const DEV_API_URL = __DEV__ 
-  ? 'http://192.168.1.109:3000/api'  // Mac'in local IP'si
-  : 'https://your-production-server.com/api';
+// Production API URL (AWS App Runner)
+const PRODUCTION_API_URL = 'https://t8wdcqtmvn.eu-central-1.awsapprunner.com/api';
 
-// API Base URL - .env veya config'den alınabilir
-export const API_BASE_URL = DEV_API_URL;
+// Development için local IP (gerekirse)
+const DEV_API_URL = 'http://192.168.1.109:3000/api';
+
+// API Base URL - Production'a geçiş
+export const API_BASE_URL = PRODUCTION_API_URL;
 
 // Error callback type
 type ErrorCallback = (error: {
@@ -64,20 +63,20 @@ api.interceptors.response.use(
     // TraceID'yi response header'dan al
     const traceId = error.response?.headers?.['x-trace-id'] as string | undefined;
     const statusCode = error.response?.status;
-    const serverMessage = error.response?.data?.message;
     
+    // Hata mesajını belirle
     let errorMessage = 'Bir hata oluştu';
     
-    if (error.code === 'ECONNABORTED') {
+    if (error.response?.data?.message) {
+      errorMessage = error.response.data.message;
+    } else if (error.message === 'Network Error') {
+      errorMessage = 'Sunucuya bağlanılamıyor. İnternet bağlantınızı kontrol edin.';
+    } else if (error.code === 'ECONNABORTED') {
       errorMessage = 'İstek zaman aşımına uğradı. Lütfen tekrar deneyin.';
-    } else if (error.code === 'ERR_NETWORK') {
-      errorMessage = 'Ağ bağlantısı kurulamadı. İnternet bağlantınızı kontrol edin.';
-    } else if (serverMessage) {
-      errorMessage = serverMessage;
     } else if (statusCode === 401) {
-      errorMessage = 'Oturum süresi doldu. Lütfen tekrar giriş yapın.';
+      errorMessage = 'Oturum süresi dolmuş. Lütfen tekrar giriş yapın.';
     } else if (statusCode === 403) {
-      errorMessage = 'Bu işlem için yetkiniz bulunmuyor.';
+      errorMessage = 'Bu işlem için yetkiniz yok.';
     } else if (statusCode === 404) {
       errorMessage = 'İstenen kaynak bulunamadı.';
     } else if (statusCode && statusCode >= 500) {

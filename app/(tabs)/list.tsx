@@ -94,17 +94,17 @@ export default function ListScreen() {
           />
         </View>
 
-        {/* NO */}
+        {/* BIB NO */}
         <View style={styles.numCol}>
           <Text style={[styles.numText, { color: colors.text }]}>
-            {item.tagId?.split(' ')[0] || '00'}
+            {item.racer?.bib || '00'}
           </Text>
         </View>
 
         {/* YARIŞÇI ADI */}
         <View style={styles.nameCol}>
           <Text style={[styles.nameText, { color: colors.text }]} numberOfLines={1}>
-            {item.tagId?.split(' ').slice(1).join(' ').toUpperCase() || 'BİLİNMEYEN'}
+            {item.racer ? `${item.racer.firstName} ${item.racer.lastName}`.toUpperCase() : 'BİLİNMEYEN'}
           </Text>
         </View>
 

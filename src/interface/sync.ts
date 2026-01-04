@@ -1,10 +1,18 @@
+// NFC'den okunan yarışçı verisi
+export interface RacerNfcData {
+  bib: number;
+  firstName: string;
+  lastName: string;
+  nat: string;
+  age: number;
+  blood: string;
+  phone: string;
+}
+
 // Bekleyen sync kaydı (lokal storage)
 export interface PendingSync {
   id: string;
-  tagId: string;
-  racerId?: number;
-  bibNumber?: string;
-  racerName?: string;
+  racer: RacerNfcData;
   checkpointId: number;
   checkpointName: string;
   timestamp: number;
@@ -20,9 +28,7 @@ export interface PendingSync {
 
 // Server'a gönderilecek sync kaydı
 export interface SyncRecord {
-  tagId: string;
-  bibNumber?: string;
-  racerName?: string;
+  racer: RacerNfcData;
   checkpointId: number;
   checkpointName: string;
   timestamp: string; // ISO format
@@ -32,7 +38,7 @@ export interface SyncRecord {
 
 // Tekil sync sonucu
 export interface SyncItemResult {
-  tagId: string;
+  bib: number;
   checkpointId: number;
   status: 'OK' | 'NOT' | 'ERROR';
   reason?: string;

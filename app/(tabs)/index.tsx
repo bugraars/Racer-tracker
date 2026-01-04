@@ -1,10 +1,10 @@
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/src/components/useColorScheme';
-import { PendingSync } from '@/src/interface/sync';
 import { UserSession } from '@/src/interface/auth';
+import { PendingSync, RacerNfcData } from '@/src/interface/sync';
+import { authService } from '@/src/services/authService';
 import { nfcService } from '@/src/services/nfcService';
 import { syncService } from '@/src/services/syncService';
-import { authService } from '@/src/services/authService';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as NetInfo from '@react-native-community/netinfo';
@@ -19,6 +19,7 @@ export default function TabOneScreen() {
   
   const [status, setStatus] = useState<'IDLE' | 'SCANNING' | 'SUCCESS' | 'ERROR'>('IDLE');
   const [lastScan, setLastScan] = useState<PendingSync | null>(null);
+  const [racerData, setRacerData] = useState<RacerNfcData | null>(null);
   const [showWarning, setShowWarning] = useState(false);
   const [activeCp, setActiveCp] = useState('YÜKLENİYOR...');
   const [checkpointId, setCheckpointId] = useState<number | null>(null);
@@ -35,10 +36,11 @@ export default function TabOneScreen() {
     const checkCacheCleared = async () => {
       try {
         const queueData = await AsyncStorage.getItem('@nfc_scan_queue');
-        // Queue silinmişse veya boşsa lastScan'ı sıfırla
+        // Queue silinmişse veya boşsa lastScan ve racerData'yı sıfırla
         if (!queueData || queueData === '[]') {
           if (lastScan) {
             setLastScan(null);
+            setRacerData(null);
           }
         }
       } catch (e) {
@@ -161,13 +163,35 @@ export default function TabOneScreen() {
     const result = await nfcService.readTag();
 
     if (result.success) {
-      const tagId = result.tagId || 'UNKNOWN_TAG'; 
+      // NFC'den okunan JSON verisini parse et
+      let parsedRacer: RacerNfcData | null = null;
+      if (result.data && result.data !== 'N/A') {
+        try {
+          parsedRacer = JSON.parse(result.data) as RacerNfcData;
+          setRacerData(parsedRacer);
+        } catch (e) {
+          console.warn('JSON parse hatası:', e);
+          Alert.alert('Hata', 'NFC etiketindeki veri okunamadı');
+          setStatus('ERROR');
+          return;
+        }
+      } else {
+        Alert.alert('Hata', 'NFC etiketinde yarışçı verisi bulunamadı');
+        setStatus('ERROR');
+        return;
+      }
+      
+      if (!parsedRacer) {
+        Alert.alert('Hata', 'Yarışçı verisi geçersiz');
+        setStatus('ERROR');
+        return;
+      }
       
       try {
-        // Duplicate kontrolü
+        // Duplicate kontrolü (bib + checkpoint)
         const queue = await syncService.getQueue();
         const isDuplicate = queue.find(item => 
-          item.tagId === tagId && item.checkpointId === currentCp.id
+          item.racer.bib === parsedRacer!.bib && item.checkpointId === currentCp.id
         );
         
         if (isDuplicate) {
@@ -179,7 +203,7 @@ export default function TabOneScreen() {
 
         // syncService ile queue'ya ekle (otomatik sync dener)
         const newEntry = await syncService.addToQueue(
-          tagId,
+          parsedRacer,
           currentCp.id,
           currentCp.name,
           coords ? { lat: coords.lat, lon: coords.lng } : undefined
@@ -239,12 +263,20 @@ export default function TabOneScreen() {
 
         {/* 3. YARIŞÇI (YEŞİL) */}
         <View style={styles.heroSection}>
-          {lastScan ? (
-            <Text style={styles.driverNameHero} numberOfLines={2}>
-              <Text style={styles.driverNumber}>{lastScan.tagId?.split(' ')[0]}</Text>
-              {" "}
-              {lastScan.tagId?.split(' ').slice(1).join(' ').toUpperCase()}
-            </Text>
+          {racerData ? (
+            <>
+              <Text style={styles.driverNameHero} numberOfLines={1}>
+                {racerData.firstName.toUpperCase()} {racerData.lastName.toUpperCase()}
+              </Text>
+              <Text style={styles.driverBibNumber}>#{racerData.bib}</Text>
+            </>
+          ) : lastScan?.racer ? (
+            <>
+              <Text style={styles.driverNameHero} numberOfLines={1}>
+                {lastScan.racer.firstName.toUpperCase()} {lastScan.racer.lastName.toUpperCase()}
+              </Text>
+              <Text style={styles.driverBibNumber}>#{lastScan.racer.bib}</Text>
+            </>
           ) : (
             <Text style={[styles.driverNameHero, { color: colors.palette.gray[200] }]}>NFC OKUTUN</Text>
           )}
@@ -256,23 +288,23 @@ export default function TabOneScreen() {
         <ScrollView style={styles.infoSection} showsVerticalScrollIndicator={false}>
           <View style={styles.detailGrid}>
             <View style={styles.detailItem}>
-              <Text style={styles.detailLabel}>ARAÇ</Text>
-              <Text style={[styles.detailValue, { color: colors.text }]}>KTM 2022</Text>
+              <Text style={styles.detailLabel}>BIB NO</Text>
+              <Text style={[styles.detailValue, { color: colors.text }]}>{racerData ? `#${racerData.bib}` : '-'}</Text>
             </View>
             <View style={styles.detailItem}>
               <Text style={styles.detailLabel}>YAŞ</Text>
-              <Text style={[styles.detailValue, { color: colors.text }]}>22</Text>
+              <Text style={[styles.detailValue, { color: colors.text }]}>{racerData?.age || '-'}</Text>
             </View>
           </View>
 
           <View style={[styles.detailGrid, { marginTop: 20 }]}>
             <View style={styles.detailItem}>
               <Text style={styles.detailLabel}>KAN GRUBU</Text>
-              <Text style={[styles.detailValue, { color: colors.palette.rose[600] }]}>0 RH+</Text>
+              <Text style={[styles.detailValue, { color: colors.palette.rose[600] }]}>{racerData?.blood || '-'}</Text>
             </View>
             <View style={styles.detailItem}>
               <Text style={styles.detailLabel}>UYRUK</Text>
-              <Text style={[styles.detailValue, { color: colors.text }]}>TUR 🇹🇷</Text>
+              <Text style={[styles.detailValue, { color: colors.text }]}>{racerData ? `${racerData.nat} ${racerData.nat === 'TR' ? '🇹🇷' : racerData.nat === 'US' ? '🇺🇸' : racerData.nat === 'ES' ? '🇪🇸' : '🏁'}` : '-'}</Text>
             </View>
           </View>
 
@@ -297,17 +329,18 @@ export default function TabOneScreen() {
           {/* TEAM / EMERGENCY CONTACT */}
           <TouchableOpacity 
             activeOpacity={0.7}
-            onLongPress={() => handleCopy("+90 5XX XXX XX XX")}
+            onLongPress={() => handleCopy(racerData?.phone || '')}
             style={{ marginTop: 25 }}
+            disabled={!racerData?.phone}
           >
             <Text style={[styles.detailLabel, { color: colors.palette.rose[500] }]}>TEAM / EMERGENCY CONTACT</Text>
             <View style={styles.contactRow}>
               <Text style={[styles.detailValue, { color: colors.palette.rose[600], fontSize: 22 }]}>
-                +90 5XX XXX XX XX
+                {racerData?.phone || '-'}
               </Text>
-              <MaterialCommunityIcons name="content-copy" size={16} color={colors.palette.rose[400]} style={{marginLeft: 10}} />
+              {racerData?.phone && <MaterialCommunityIcons name="content-copy" size={16} color={colors.palette.rose[400]} style={{marginLeft: 10}} />}
             </View>
-            <Text style={styles.copyHint}>Kopyalamak için numaraya basılı tutun</Text>
+            {racerData?.phone && <Text style={styles.copyHint}>Kopyalamak için numaraya basılı tutun</Text>}
           </TouchableOpacity>
         </ScrollView>
 
@@ -357,7 +390,8 @@ const styles = StyleSheet.create({
   timeText: { fontSize: 42, fontWeight: '800' },
   msText: { fontSize: 22, color: '#bbb' },
   heroSection: { alignItems: 'center', marginBottom: 5 },
-  driverNameHero: { fontSize: 36, fontWeight: '900', textAlign: 'center', color: '#10b981' },
+  driverNameHero: { fontSize: 32, fontWeight: '900', textAlign: 'center', color: '#10b981' },
+  driverBibNumber: { fontSize: 28, fontWeight: '700', color: '#059669', marginTop: 2 },
   driverNumber: { fontSize: 22, fontWeight: '600', color: '#059669' },
   hr: { height: 1, backgroundColor: '#eee', marginVertical: 15 },
   infoSection: { flex: 1 },

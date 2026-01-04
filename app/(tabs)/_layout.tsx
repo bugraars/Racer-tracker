@@ -4,7 +4,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Tabs } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function TabBarIcon(props: {
   name: React.ComponentProps<typeof FontAwesome>['name'];
@@ -17,6 +18,10 @@ export default function TabLayout() {
   const theme = useColorScheme() ?? 'light';
   const currentColors = Colors[theme];
   const [isInfoVisible, setIsInfoVisible] = useState(false);
+  const insets = useSafeAreaInsets();
+
+  // Tab bar yüksekliği - sistem navigasyon çubuğu için bottom padding ekle
+  const tabBarHeight = 60 + (Platform.OS === 'android' ? Math.max(insets.bottom, 0) : insets.bottom);
 
   const infoItems = useMemo(
     () => [
@@ -41,8 +46,8 @@ export default function TabLayout() {
           tabBarStyle: {
             backgroundColor: currentColors.card,
             borderTopColor: currentColors.border,
-            height: 60,
-            paddingBottom: 8,
+            height: tabBarHeight,
+            paddingBottom: Platform.OS === 'android' ? Math.max(insets.bottom, 8) : insets.bottom + 8,
           },
           headerStyle: {
             backgroundColor: currentColors.card,

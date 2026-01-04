@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as NetInfo from '@react-native-community/netinfo';
 import api from '../config/api';
-import { PendingSync, SyncRecord, SyncResponse, SyncItemResult, RaceResult } from '../interface/sync';
+import { PendingSync, RaceResult, RacerNfcData, SyncItemResult, SyncRecord, SyncResponse } from '../interface/sync';
 import { authService } from './authService';
 
 const QUEUE_KEY = '@nfc_scan_queue';
@@ -14,7 +14,7 @@ export const syncService = {
   
   // Yeni tarama ekle
   async addToQueue(
-    tagId: string,
+    racer: RacerNfcData,
     checkpointId: number,
     checkpointName: string,
     coords?: { lat: number; lon: number }
@@ -23,7 +23,7 @@ export const syncService = {
     
     const newItem: PendingSync = {
       id: Date.now().toString(),
-      tagId,
+      racer,
       checkpointId,
       checkpointName,
       timestamp: Date.now(),
@@ -123,9 +123,7 @@ export const syncService = {
 
     // Records'ları API formatına çevir
     const records: SyncRecord[] = pending.map(item => ({
-      tagId: item.tagId,
-      bibNumber: item.bibNumber,
-      racerName: item.racerName,
+      racer: item.racer,
       checkpointId: item.checkpointId,
       checkpointName: item.checkpointName,
       timestamp: new Date(item.timestamp).toISOString(),
@@ -138,12 +136,17 @@ export const syncService = {
       const isPreRace = await this.isPreRaceDay();
       const endpoint = isPreRace ? '/times/prerace/sync' : '/times/race/sync';
       
+      console.log('📤 Sync isteği gönderiliyor:', endpoint);
+      console.log('📤 Records:', JSON.stringify(records, null, 2));
+      
       const response = await api.post<SyncResponse>(endpoint, { records });
       const result = response.data;
+      
+      console.log('📥 Sync yanıtı:', JSON.stringify(result, null, 2));
 
       // Her kaydın durumunu güncelle
       for (const detail of result.details) {
-        const item = pending.find(p => p.tagId === detail.tagId && p.checkpointId === detail.checkpointId);
+        const item = pending.find(p => p.racer.bib === detail.bib && p.checkpointId === detail.checkpointId);
         if (item) {
           const status = detail.status === 'OK' ? 'SYNCED' : 
                         detail.status === 'ERROR' ? 'FAILED' : 'PENDING';
@@ -154,7 +157,9 @@ export const syncService = {
       console.log(`Sync tamamlandı: ${result.synced}/${result.processed} başarılı`);
       return result;
     } catch (error: any) {
-      console.error('Sync hatası:', error.response?.data || error.message);
+      console.error('❌ Sync hatası:', error.response?.status);
+      console.error('❌ Hata detayı:', JSON.stringify(error.response?.data, null, 2));
+      console.error('❌ Mesaj:', error.message);
       return null;
     }
   },
